@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/mingfopc/go-nfs-client/nfs/xdr"
+	"github.com/mingforpc/go-nfs-client/nfs/xdr"
 )
 
 type Auth struct {

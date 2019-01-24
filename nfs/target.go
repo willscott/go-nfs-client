@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mingfopc/go-nfs-client/nfs/rpc"
-	"github.com/mingfopc/go-nfs-client/nfs/util"
-	"github.com/mingfopc/go-nfs-client/nfs/xdr"
+	"github.com/mingforpc/go-nfs-client/nfs/rpc"
+	"github.com/mingforpc/go-nfs-client/nfs/util"
+	"github.com/mingforpc/go-nfs-client/nfs/xdr"
 )
 
 type Target struct {

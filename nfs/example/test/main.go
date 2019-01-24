@@ -13,9 +13,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mingfopc/go-nfs-client/nfs"
-	"github.com/mingfopc/go-nfs-client/nfs/rpc"
-	"github.com/mingfopc/go-nfs-client/nfs/util"
+	"github.com/mingforpc/go-nfs-client/nfs"
+	"github.com/mingforpc/go-nfs-client/nfs/rpc"
+	"github.com/mingforpc/go-nfs-client/nfs/util"
 )
 
 func main() {
