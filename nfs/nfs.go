@@ -16,12 +16,23 @@ import (
 	"github.com/mingforpc/go-nfs-client/nfs/util"
 )
 
+// Access function
+const (
+	ACCESS3_READ    = 0x0001
+	ACCESS3_LOOKUP  = 0x0002
+	ACCESS3_MODIFY  = 0x0004
+	ACCESS3_EXTEND  = 0x0008
+	ACCESS3_DELETE  = 0x0010
+	ACCESS3_EXECUTE = 0x0020
+)
+
 const (
 	Nfs3Prog = 100003
 	Nfs3Vers = 3
 
 	// program methods
 	NFSProc3Lookup      = 3
+	NFSProc3Access      = 4
 	NFSProc3Read        = 6
 	NFSProc3Write       = 7
 	NFSProc3Create      = 8

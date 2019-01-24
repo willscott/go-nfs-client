@@ -177,6 +177,60 @@ func (v *Target) lookup(fh []byte, name string) (*Fattr, []byte, error) {
 	return &lookupres.Attr.Attr, lookupres.FH, nil
 }
 
+// Access file
+func (v *Target) Access(path string, mode uint32) (uint32, error) {
+
+	_, mode, err := v.access(v.fh, path, mode)
+
+	return mode, err
+}
+
+// access returns the same as above, but by fh and name
+func (v *Target) access(fh []byte, path string, access uint32) (*Fattr, uint32, error) {
+	type Access3Args struct {
+		rpc.Header
+		FH     []byte
+		Access uint32
+	}
+
+	type AccessOk struct {
+		Attr   PostOpAttr
+		Access uint32
+	}
+
+	type AccessFail struct {
+		Attr PostOpAttr
+	}
+
+	res, err := v.call(&Access3Args{Header: rpc.Header{
+		Rpcvers: 2,
+		Prog:    Nfs3Prog,
+		Vers:    Nfs3Vers,
+		Proc:    NFSProc3Access,
+		Cred:    v.auth,
+		Verf:    rpc.AuthNull,
+	},
+		FH:     fh,
+		Access: access})
+
+	if err != nil {
+		util.Debugf("access(%s): %s", path, err.Error())
+		return nil, 0, err
+	}
+
+	accessres := new(AccessOk)
+
+	if err := xdr.Read(res, accessres); err != nil {
+		util.Errorf("access(%s) failed to parse return: %s", path, err)
+		util.Debugf("access partial decode: %+v", *accessres)
+		return nil, 0, err
+	}
+
+	util.Debugf("access(%s): access %d, attr: %+v", path, accessres.Access, accessres.Attr)
+
+	return &accessres.Attr.Attr, accessres.Access, nil
+}
+
 func (v *Target) ReadDirPlus(dir string) ([]*EntryPlus, error) {
 	_, fh, err := v.Lookup(dir)
 	if err != nil {
