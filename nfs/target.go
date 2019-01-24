@@ -133,6 +133,34 @@ func (v *Target) Lookup(p string) (os.FileInfo, []byte, error) {
 	return fattr, fh, nil
 }
 
+// Lookup returns attributes and the file handle to a given dirent
+func (v *Target) lookup2(p string) (*Fattr, []byte, error) {
+	var (
+		err   error
+		fattr *Fattr
+		fh    = v.fh
+	)
+
+	// desecend down a path heirarchy to get the last elem's fh
+	dirents := strings.Split(path.Clean(p), "/")
+	for _, dirent := range dirents {
+		// we're assuming the root is always the root of the mount
+		if dirent == "." || dirent == "" {
+			util.Debugf("root -> 0x%x", fh)
+			continue
+		}
+
+		fattr, fh, err = v.lookup(fh, dirent)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		//util.Debugf("%s -> 0x%x", dirent, fh)
+	}
+
+	return fattr, fh, nil
+}
+
 // lookup returns the same as above, but by fh and name
 func (v *Target) lookup(fh []byte, name string) (*Fattr, []byte, error) {
 	type Lookup3Args struct {
@@ -180,7 +208,12 @@ func (v *Target) lookup(fh []byte, name string) (*Fattr, []byte, error) {
 // Access file
 func (v *Target) Access(path string, mode uint32) (uint32, error) {
 
-	_, mode, err := v.access(v.fh, path, mode)
+	_, fh, err := v.Lookup(path)
+	if err != nil {
+		return 0, err
+	}
+
+	_, mode, err = v.access(fh, path, mode)
 
 	return mode, err
 }
@@ -196,10 +229,6 @@ func (v *Target) access(fh []byte, path string, access uint32) (*Fattr, uint32, 
 	type AccessOk struct {
 		Attr   PostOpAttr
 		Access uint32
-	}
-
-	type AccessFail struct {
-		Attr PostOpAttr
 	}
 
 	res, err := v.call(&Access3Args{Header: rpc.Header{
@@ -231,6 +260,112 @@ func (v *Target) access(fh []byte, path string, access uint32) (*Fattr, uint32, 
 	return &accessres.Attr.Attr, accessres.Access, nil
 }
 
+// Getattr file
+func (v *Target) Getattr(path string) (*Fattr, error) {
+
+	_, fh, err := v.Lookup(path)
+	if err != nil {
+		return nil, err
+	}
+
+	attr, err := v.getattr(fh, path)
+
+	return attr, err
+}
+
+func (v *Target) getattr(fh []byte, path string) (*Fattr, error) {
+
+	type Getattr3Args struct {
+		rpc.Header
+		FH []byte
+	}
+
+	type GetattrOk struct {
+		Attr Fattr
+	}
+
+	res, err := v.call(&Getattr3Args{Header: rpc.Header{
+		Rpcvers: 2,
+		Prog:    Nfs3Prog,
+		Vers:    Nfs3Vers,
+		Proc:    NFSProc3Getattr,
+		Cred:    v.auth,
+		Verf:    rpc.AuthNull,
+	},
+		FH: fh})
+
+	if err != nil {
+		util.Debugf("getattr(%s): %s", path, err.Error())
+		return nil, err
+	}
+
+	getattrres := new(GetattrOk)
+
+	if err := xdr.Read(res, getattrres); err != nil {
+		util.Errorf("getattr(%s) failed to parse return: %s", path, err)
+		util.Debugf("getattr partial decode: %+v", *getattrres)
+		return nil, err
+	}
+
+	util.Debugf("getattr(%s): attr: %+v", path, getattrres.Attr)
+
+	return &getattrres.Attr, nil
+}
+
+// Setattr set file attr
+func (v *Target) Setattr(path string, sattr SetAttr) error {
+
+	attr, fh, err := v.lookup2(path)
+	if err != nil {
+		return err
+	}
+	err = v.setattr(fh, path, sattr, attr.Mtime)
+	return err
+}
+
+func (v *Target) setattr(fh []byte, path string, sattr SetAttr, guard NFS3Time) error {
+
+	type Setattr3Args struct {
+		rpc.Header
+		FH       []byte
+		Sattr    SetAttr
+		ObjCtime NFS3Time
+	}
+
+	type SetattrOk struct {
+		FileWcc WccData
+	}
+
+	res, err := v.call(&Setattr3Args{Header: rpc.Header{
+		Rpcvers: 2,
+		Prog:    Nfs3Prog,
+		Vers:    Nfs3Vers,
+		Proc:    NFSProc3Setattr,
+		Cred:    v.auth,
+		Verf:    rpc.AuthNull,
+	},
+		FH:       fh,
+		Sattr:    sattr,
+		ObjCtime: guard})
+
+	if err != nil {
+		util.Debugf("setattr(%s): %s", path, err.Error())
+	}
+
+	setattrres := new(SetattrOk)
+
+	if err := xdr.Read(res, setattrres); err != nil {
+		util.Errorf("setattr(%s) failed to parse return: %s", path, err)
+		util.Debugf("setattr partial decode: %+v", *setattrres)
+		return err
+	}
+
+	util.Debugf("setattr(%s): FileWcc: %+v", path, setattrres.FileWcc)
+
+	return nil
+}
+
+// ReadDirPlus get dir sub item
 func (v *Target) ReadDirPlus(dir string) ([]*EntryPlus, error) {
 	_, fh, err := v.Lookup(dir)
 	if err != nil {

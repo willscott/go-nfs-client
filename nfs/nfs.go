@@ -31,6 +31,8 @@ const (
 	Nfs3Vers = 3
 
 	// program methods
+	NFSProc3Getattr     = 1
+	NFSProc3Setattr     = 2
 	NFSProc3Lookup      = 3
 	NFSProc3Access      = 4
 	NFSProc3Read        = 6
@@ -60,6 +62,16 @@ const (
 type Diropargs3 struct {
 	FH       []byte
 	Filename string
+}
+
+// SetAttr for setattr use
+type SetAttr struct {
+	Mode  uint32
+	UID   uint32
+	GID   uint32
+	Size  uint64
+	Atime NFS3Time
+	Mtime NFS3Time
 }
 
 type Sattr3 struct {
