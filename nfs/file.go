@@ -8,9 +8,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/vmware/go-nfs-client/nfs/rpc"
-	"github.com/vmware/go-nfs-client/nfs/util"
-	"github.com/vmware/go-nfs-client/nfs/xdr"
+	"github.com/mingforpc/go-nfs-client/nfs/rpc"
+	"github.com/mingforpc/go-nfs-client/nfs/util"
+	"github.com/mingforpc/go-nfs-client/nfs/xdr"
 )
 
 // File wraps the NfsProc3Read and NfsProc3Write methods to implement a
