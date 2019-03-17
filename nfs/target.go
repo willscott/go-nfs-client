@@ -4,6 +4,7 @@
 package nfs
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -313,23 +314,24 @@ func (v *Target) getattr(fh []byte, path string) (*Fattr, error) {
 }
 
 // Setattr set file attr
-func (v *Target) Setattr(path string, sattr SetAttr) error {
+func (v *Target) Setattr(path string, sattr Sattr3) error {
 
 	attr, fh, err := v.lookup2(path)
 	if err != nil {
 		return err
 	}
-	err = v.setattr(fh, path, sattr, attr.Mtime)
+	fmt.Println(attr.Mtime)
+	err = v.setattr(fh, path, sattr, Sattrguard3{Check: 1, Time: attr.Ctime})
 	return err
 }
 
-func (v *Target) setattr(fh []byte, path string, sattr SetAttr, guard NFS3Time) error {
+func (v *Target) setattr(fh []byte, path string, sattr Sattr3, guard Sattrguard3) error {
 
 	type Setattr3Args struct {
 		rpc.Header
-		FH       []byte
-		Sattr    SetAttr
-		ObjCtime NFS3Time
+		FH    []byte
+		Sattr Sattr3
+		Guard Sattrguard3
 	}
 
 	type SetattrOk struct {
@@ -344,12 +346,12 @@ func (v *Target) setattr(fh []byte, path string, sattr SetAttr, guard NFS3Time) 
 		Cred:    v.auth,
 		Verf:    rpc.AuthNull,
 	},
-		FH:       fh,
-		Sattr:    sattr,
-		ObjCtime: guard})
-
+		FH:    fh,
+		Sattr: sattr,
+		Guard: guard})
 	if err != nil {
 		util.Debugf("setattr(%s): %s", path, err.Error())
+		return err
 	}
 
 	setattrres := new(SetattrOk)
@@ -359,7 +361,6 @@ func (v *Target) setattr(fh []byte, path string, sattr SetAttr, guard NFS3Time) 
 		util.Debugf("setattr partial decode: %+v", *setattrres)
 		return err
 	}
-
 	util.Debugf("setattr(%s): FileWcc: %+v", path, setattrres.FileWcc)
 
 	return nil
