@@ -4,7 +4,6 @@
 package nfs
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path"
@@ -320,7 +319,7 @@ func (v *Target) Setattr(path string, sattr Sattr3) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(attr.Mtime)
+
 	err = v.setattr(fh, path, sattr, Sattrguard3{Check: 1, Time: attr.Ctime})
 	return err
 }

@@ -98,6 +98,10 @@ type SetSize struct {
 	Size  uint64 `xdr:"unioncase=1"`
 }
 
+// TimeHow
+// DONT_CHANGE        = 0
+// SET_TO_SERVER_TIME = 1
+// SET_TO_CLIENT_TIME = 2
 type TimeHow int
 
 const (
