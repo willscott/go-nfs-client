@@ -22,6 +22,7 @@ const (
 
 	// program methods
 	NFSProc3Lookup      = 3
+	NFSProc3Readlink    = 5
 	NFSProc3Read        = 6
 	NFSProc3Write       = 7
 	NFSProc3Create      = 8

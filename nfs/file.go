@@ -26,6 +26,47 @@ type File struct {
 	fh []byte
 }
 
+// Readlink gets the target of a symlink
+func (f *File) Readlink() (string, error) {
+	type ReadlinkArgs struct {
+		rpc.Header
+		FH []byte
+	}
+
+	type ReadlinkRes struct {
+		Attr PostOpAttr
+		data []byte
+	}
+
+	r, err := f.call(&ReadlinkArgs{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    Nfs3Prog,
+			Vers:    Nfs3Vers,
+			Proc:    NFSProc3Readlink,
+			Cred:    f.auth,
+			Verf:    rpc.AuthNull,
+		},
+		FH: f.fh,
+	})
+
+	if err != nil {
+		util.Debugf("readlink(%x): %s", f.fh, err.Error())
+		return "", err
+	}
+
+	readlinkres := &ReadlinkRes{}
+	if err = xdr.Read(r, readlinkres); err != nil {
+		return "", err
+	}
+
+	if readlinkres.data, err = xdr.ReadOpaque(r); err != nil {
+		return "", err
+	}
+
+	return string(readlinkres.data), err
+}
+
 func (f *File) Read(p []byte) (int, error) {
 	type ReadArgs struct {
 		rpc.Header
