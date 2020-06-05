@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zema1/go-nfs-client/nfs/rpc"
-	"github.com/zema1/go-nfs-client/nfs/util"
+	"github.com/willscott/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/util"
 )
 
 // Access function

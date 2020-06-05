@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zema1/go-nfs-client/nfs/util"
-	"github.com/zema1/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs-client/nfs/util"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 const (

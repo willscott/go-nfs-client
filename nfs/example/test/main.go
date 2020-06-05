@@ -13,9 +13,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/zema1/go-nfs-client/nfs"
-	"github.com/zema1/go-nfs-client/nfs/rpc"
-	"github.com/zema1/go-nfs-client/nfs/util"
+	"github.com/willscott/go-nfs-client/nfs"
+	"github.com/willscott/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/util"
 )
 
 func main() {

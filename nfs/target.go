@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zema1/go-nfs-client/nfs/rpc"
-	"github.com/zema1/go-nfs-client/nfs/util"
-	"github.com/zema1/go-nfs-client/nfs/xdr"
+	"github.com/willscott/go-nfs-client/nfs/rpc"
+	"github.com/willscott/go-nfs-client/nfs/util"
+	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
 
 type Target struct {
