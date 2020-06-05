@@ -37,6 +37,10 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string) (*Target, 
 		return nil, err
 	}
 
+	return NewTargetWithClient(client, auth, fh, dirpath)
+}
+
+func NewTargetWithClient(client *rpc.Client, auth rpc.Auth, fh []byte, dirpath string) (*Target, error) {
 	vol := &Target{
 		Client:  client,
 		auth:    auth,
@@ -50,7 +54,7 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string) (*Target, 
 	}
 
 	vol.fsinfo = fsinfo
-	util.Debugf("%s:%s fsinfo=%#v", addr, dirpath, fsinfo)
+	util.Debugf("%s fsinfo=%#v", dirpath, fsinfo)
 
 	return vol, nil
 }
