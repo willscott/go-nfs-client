@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mingforpc/go-nfs-client/nfs/util"
-	"github.com/mingforpc/go-nfs-client/nfs/xdr"
+	"github.com/zema1/go-nfs-client/nfs/util"
+	"github.com/zema1/go-nfs-client/nfs/xdr"
 )
 
 const (
@@ -42,6 +42,9 @@ func init() {
 	xid = rand.New(rand.NewSource(time.Now().UnixNano())).Uint32()
 }
 
+// added by zema1
+var DefaultReadTimeout = time.Second * 5
+
 type Client struct {
 	*tcpTransport
 }
@@ -58,8 +61,9 @@ func DialTCP(network string, ldr *net.TCPAddr, addr string) (*Client, error) {
 	}
 
 	t := &tcpTransport{
-		r:  bufio.NewReader(conn),
-		wc: conn,
+		r:       bufio.NewReader(conn),
+		wc:      conn,
+		timeout: DefaultReadTimeout,
 	}
 
 	return &Client{t}, nil

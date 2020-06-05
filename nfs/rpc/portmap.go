@@ -6,7 +6,7 @@ package rpc
 import (
 	"fmt"
 
-	"github.com/mingforpc/go-nfs-client/nfs/xdr"
+	"github.com/zema1/go-nfs-client/nfs/xdr"
 )
 
 // PORTMAP

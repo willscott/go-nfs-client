@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/mingforpc/go-nfs-client/nfs/util"
+	"github.com/zema1/go-nfs-client/nfs/util"
 )
 
 func TestRead(t *testing.T) {
