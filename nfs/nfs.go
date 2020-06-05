@@ -12,8 +12,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vmware/go-nfs-client/nfs/rpc"
-	"github.com/vmware/go-nfs-client/nfs/util"
+	"github.com/mingforpc/go-nfs-client/nfs/rpc"
+	"github.com/mingforpc/go-nfs-client/nfs/util"
+)
+
+// Access function
+const (
+	ACCESS3_READ    = 0x0001
+	ACCESS3_LOOKUP  = 0x0002
+	ACCESS3_MODIFY  = 0x0004
+	ACCESS3_EXTEND  = 0x0008
+	ACCESS3_DELETE  = 0x0010
+	ACCESS3_EXECUTE = 0x0020
 )
 
 const (
@@ -21,7 +31,10 @@ const (
 	Nfs3Vers = 3
 
 	// program methods
+	NFSProc3Getattr     = 1
+	NFSProc3Setattr     = 2
 	NFSProc3Lookup      = 3
+	NFSProc3Access      = 4
 	NFSProc3Readlink    = 5
 	NFSProc3Read        = 6
 	NFSProc3Write       = 7
@@ -52,6 +65,16 @@ type Diropargs3 struct {
 	Filename string
 }
 
+// SetAttr for setattr use
+type SetAttr struct {
+	Mode  uint32
+	UID   uint32
+	GID   uint32
+	Size  uint64
+	Atime NFS3Time
+	Mtime NFS3Time
+}
+
 type Sattr3 struct {
 	Mode  SetMode
 	UID   SetUID
@@ -76,6 +99,10 @@ type SetSize struct {
 	Size  uint64 `xdr:"unioncase=1"`
 }
 
+// TimeHow
+// DONT_CHANGE        = 0
+// SET_TO_SERVER_TIME = 1
+// SET_TO_CLIENT_TIME = 2
 type TimeHow int
 
 const (
@@ -87,6 +114,11 @@ const (
 type SetTime struct {
 	SetIt TimeHow  `xdr:"union"`
 	Time  NFS3Time `xdr:"unioncase=2"` //SetToClientTime
+}
+
+type Sattrguard3 struct {
+	Check int      `xdr:"union"`
+	Time  NFS3Time //SetToClientTime
 }
 
 type NFS3Time struct {
