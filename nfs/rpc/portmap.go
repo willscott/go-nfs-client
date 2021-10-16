@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/willscott/go-nfs-client/nfs/xdr"
 )
@@ -17,7 +18,9 @@ const (
 	PmapProg = 100000
 	PmapVers = 2
 
-	PmapProcGetPort = 3
+	PmapProcSetPort   = 1
+	PMapProcUnsetPort = 2
+	PmapProcGetPort   = 3
 
 	IPProtoTCP = 6
 	IPProtoUDP = 17
@@ -45,22 +48,7 @@ type Portmapper struct {
 }
 
 func (p *Portmapper) Getport(mapping Mapping) (int, error) {
-	type getport struct {
-		Header
-		Mapping
-	}
-	msg := &getport{
-		Header{
-			Rpcvers: 2,
-			Prog:    PmapProg,
-			Vers:    PmapVers,
-			Proc:    PmapProcGetPort,
-			Cred:    AuthNull,
-			Verf:    AuthNull,
-		},
-		mapping,
-	}
-	res, err := p.Call(msg)
+	res, err := p.call(PmapProcGetPort, mapping)
 	if err != nil {
 		return 0, err
 	}
@@ -69,6 +57,41 @@ func (p *Portmapper) Getport(mapping Mapping) (int, error) {
 		return int(port), err
 	}
 	return int(port), nil
+}
+
+func (p *Portmapper) Setport(mapping Mapping) (bool, error) {
+	res, err := p.call(PmapProcSetPort, mapping)
+	if err != nil {
+		return false, err
+	}
+
+	return xdr.ReadBoolean(res)
+}
+
+func (p *Portmapper) Unsetport(mapping Mapping) (bool, error) {
+	res, err := p.call(PMapProcUnsetPort, mapping)
+	if err != nil {
+		return false, err
+	}
+
+	return xdr.ReadBoolean(res)
+}
+
+func (p *Portmapper) call(proc uint32, mapping Mapping) (io.ReadSeeker, error) {
+	return p.Call(struct {
+		Header
+		Mapping
+	}{
+		Header: Header{
+			Rpcvers: 2,
+			Prog:    PmapProg,
+			Vers:    PmapVers,
+			Proc:    proc,
+			Cred:    AuthNull,
+			Verf:    AuthNull,
+		},
+		Mapping: mapping,
+	})
 }
 
 func DialPortmapper(net, host string) (*Portmapper, error) {
