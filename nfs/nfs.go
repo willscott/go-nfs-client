@@ -252,7 +252,7 @@ type FSInfo struct {
 	Properties uint32
 }
 
-// Dial an RPC svc after getting the port from the portmapper
+// DialService Dial an RPC svc after getting the port from the portmapper
 func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 	pm, err := rpc.DialPortmapper("tcp", addr)
 	if err != nil {
@@ -328,7 +328,7 @@ func dialService(addr string, port int) (*rpc.Client, error) {
 }
 
 func isAddrInUse(err error) bool {
-	if er, ok := (err.(*net.OpError)); ok {
+	if er, ok := err.(*net.OpError); ok {
 		if syser, ok := er.Err.(*os.SyscallError); ok {
 			return syser.Err == syscall.EADDRINUSE
 		}

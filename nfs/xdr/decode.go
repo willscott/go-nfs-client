@@ -23,6 +23,14 @@ func ReadUint32(r io.Reader) (uint32, error) {
 	return n, nil
 }
 
+func ReadBoolean(r io.Reader) (bool, error) {
+	var b bool
+	if err := Read(r, &b); err != nil {
+		return false, err
+	}
+	return b, nil
+}
+
 func ReadOpaque(r io.Reader) ([]byte, error) {
 	length, err := ReadUint32(r)
 	if err != nil {
