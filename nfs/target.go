@@ -155,9 +155,9 @@ func (v *Target) Lookup(p string) (os.FileInfo, []byte, error) {
 	dirents := strings.Split(path.Clean(p), "/")
 	for _, dirent := range dirents {
 		// we're assuming the root is always the root of the mount
-		if dirent == "." || dirent == "" {
+		if dirent == "" {
 			util.Debugf("root -> 0x%x", fh)
-			continue
+			dirent = "."
 		}
 
 		fattr, fh, err = v.cachedLookup(fh, dirent)
@@ -189,7 +189,7 @@ func (v *Target) cachedLookup(fh []byte, name string) (*Fattr, []byte, error) {
 	}
 	v.cacheM.Unlock()
 	attr, fh, err := v.lookup(fh, name)
-	if err == nil {
+	if err == nil && attr.Type == 2 { // only cache directories
 		if es == nil {
 			es = make(map[string]*cacheEntry)
 			v.entries[ino] = es
@@ -198,7 +198,7 @@ func (v *Target) cachedLookup(fh []byte, name string) (*Fattr, []byte, error) {
 		es[name] = &cacheEntry{fh, attr, time.Now().Add(v.entryTimeout)}
 		v.cacheM.Unlock()
 	}
-	return nil, nil, nil
+	return attr, fh, err
 }
 
 func (v *Target) invalidateEntryCache(fh []byte, name string) {
