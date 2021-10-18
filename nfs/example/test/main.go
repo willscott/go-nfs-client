@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
@@ -33,7 +34,7 @@ func main() {
 
 	util.Infof("host=%s target=%s dir=%s\n", host, target, dir)
 
-	mount, err := nfs.DialMount(host)
+	mount, err := nfs.DialMount(host, time.Second)
 	if err != nil {
 		log.Fatalf("unable to dial MOUNT service: %v", err)
 	}

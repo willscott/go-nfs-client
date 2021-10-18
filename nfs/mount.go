@@ -6,6 +6,7 @@ package nfs
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 	"github.com/vmware/go-nfs-client/nfs/xdr"
@@ -34,9 +35,10 @@ const (
 
 type Mount struct {
 	*rpc.Client
-	auth    rpc.Auth
-	dirPath string
-	Addr    string
+	auth         rpc.Auth
+	dirPath      string
+	Addr         string
+	entryTimeout time.Duration
 }
 
 func (m *Mount) Unmount() error {
@@ -104,7 +106,7 @@ func (m *Mount) Mount(dirpath string, auth rpc.Auth) (*Target, error) {
 		m.dirPath = dirpath
 		m.auth = auth
 
-		vol, err := NewTarget(m.Addr, auth, fh, dirpath)
+		vol, err := NewTarget(m.Addr, auth, fh, dirpath, m.entryTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +129,7 @@ func (m *Mount) Mount(dirpath string, auth rpc.Auth) (*Target, error) {
 	return nil, fmt.Errorf("unknown mount stat: %d", mountstat3)
 }
 
-func DialMount(addr string) (*Mount, error) {
+func DialMount(addr string, entryTimeout time.Duration) (*Mount, error) {
 	// get MOUNT port
 	m := rpc.Mapping{
 		Prog: MountProg,
@@ -142,7 +144,8 @@ func DialMount(addr string) (*Mount, error) {
 	}
 
 	return &Mount{
-		Client: client,
-		Addr:   addr,
+		Client:       client,
+		Addr:         addr,
+		entryTimeout: entryTimeout,
 	}, nil
 }
