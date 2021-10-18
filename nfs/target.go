@@ -9,12 +9,19 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 	"github.com/vmware/go-nfs-client/nfs/util"
 	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
+type cacheEntry struct {
+	fh     []byte
+	attr   *Fattr
+	expire time.Time
+}
 type Target struct {
 	*rpc.Client
 
@@ -22,9 +29,13 @@ type Target struct {
 	fh      []byte
 	dirPath string
 	fsinfo  *FSInfo
+
+	entryTimeout time.Duration
+	cacheM       sync.Mutex
+	entries      map[string]map[string]*cacheEntry
 }
 
-func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string) (*Target, error) {
+func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string, entryTimeout time.Duration) (*Target, error) {
 	m := rpc.Mapping{
 		Prog: Nfs3Prog,
 		Vers: Nfs3Vers,
@@ -38,10 +49,12 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string) (*Target, 
 	}
 
 	vol := &Target{
-		Client:  client,
-		auth:    auth,
-		fh:      fh,
-		dirPath: dirpath,
+		Client:       client,
+		auth:         auth,
+		fh:           fh,
+		dirPath:      dirpath,
+		entryTimeout: entryTimeout,
+		entries:      make(map[string]map[string]*cacheEntry),
 	}
 
 	fsinfo, err := vol.FSInfo()
@@ -51,7 +64,7 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string) (*Target, 
 
 	vol.fsinfo = fsinfo
 	util.Debugf("%s:%s fsinfo=%#v", addr, dirpath, fsinfo)
-
+	go vol.cleanupCache()
 	return vol, nil
 }
 
@@ -105,6 +118,31 @@ func (v *Target) FSInfo() (*FSInfo, error) {
 	return fsinfo, nil
 }
 
+func (v *Target) cleanupCache() {
+	for {
+		v.cacheM.Lock()
+		now := time.Now()
+		var cnt int
+	OUTER:
+		for fh, es := range v.entries {
+			for n, e := range es {
+				if now.After(e.expire) {
+					delete(es, n)
+					if len(es) == 0 {
+						delete(v.entries, fh)
+					}
+				}
+				cnt++
+				if cnt > 1000 {
+					break OUTER
+				}
+			}
+		}
+		v.cacheM.Unlock()
+		time.Sleep(time.Second)
+	}
+}
+
 // Lookup returns attributes and the file handle to a given dirent
 func (v *Target) Lookup(p string) (os.FileInfo, []byte, error) {
 	var (
@@ -122,15 +160,55 @@ func (v *Target) Lookup(p string) (os.FileInfo, []byte, error) {
 			continue
 		}
 
-		fattr, fh, err = v.lookup(fh, dirent)
+		fattr, fh, err = v.cachedLookup(fh, dirent)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		//util.Debugf("%s -> 0x%x", dirent, fh)
+		// TODO: resolve symlink
 	}
 
 	return fattr, fh, nil
+}
+
+func (v *Target) parsefh(fh []byte) string {
+	return string(fh)
+}
+
+func (v *Target) cachedLookup(fh []byte, name string) (*Fattr, []byte, error) {
+	ino := v.parsefh(fh)
+	v.cacheM.Lock()
+	es := v.entries[ino]
+	if es != nil {
+		e := es[name]
+		if e != nil && time.Since(e.expire) < 0 {
+			v.cacheM.Unlock()
+			return e.attr, e.fh, nil
+		}
+	}
+	v.cacheM.Unlock()
+	attr, fh, err := v.lookup(fh, name)
+	if err == nil {
+		if es == nil {
+			es = make(map[string]*cacheEntry)
+			v.entries[ino] = es
+		}
+		v.cacheM.Lock()
+		es[name] = &cacheEntry{fh, attr, time.Now().Add(v.entryTimeout)}
+		v.cacheM.Unlock()
+	}
+	return nil, nil, nil
+}
+
+func (v *Target) invalidateEntryCache(fh []byte, name string) {
+	ino := v.parsefh(fh)
+	v.cacheM.Lock()
+	es, ok := v.entries[ino]
+	if ok {
+		delete(es, name)
+	}
+	v.cacheM.Unlock()
 }
 
 // lookup returns the same as above, but by fh and name
@@ -327,7 +405,7 @@ func (v *Target) Mkdir(path string, perm os.FileMode) ([]byte, error) {
 		util.Debugf("mkdir(%s) partial response: %+v", mkdirres)
 		return nil, err
 	}
-
+	v.invalidateEntryCache(fh, newDir)
 	util.Debugf("mkdir(%s): created successfully (0x%x)", path, fh)
 	return mkdirres.FH.FH, nil
 }
@@ -391,7 +469,7 @@ func (v *Target) Create(path string, perm os.FileMode) ([]byte, error) {
 	if err = xdr.Read(res, status); err != nil {
 		return nil, err
 	}
-
+	v.invalidateEntryCache(fh, newFile)
 	util.Debugf("create(%s): created successfully", path)
 	return status.FH.FH, nil
 }
@@ -433,7 +511,7 @@ func (v *Target) remove(fh []byte, deleteFile string) error {
 		util.Debugf("remove(%s): %s", deleteFile, err.Error())
 		return err
 	}
-
+	v.invalidateEntryCache(fh, deleteFile)
 	return nil
 }
 
@@ -474,7 +552,7 @@ func (v *Target) rmDir(fh []byte, name string) error {
 		util.Debugf("rmdir(%s): %s", name, err.Error())
 		return err
 	}
-
+	v.invalidateEntryCache(fh, name)
 	util.Debugf("rmdir(%s): deleted successfully", name)
 	return nil
 }
