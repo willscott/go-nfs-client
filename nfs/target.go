@@ -17,11 +17,12 @@ import (
 	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
-type cacheEntry struct {
-	fh     []byte
-	attr   *Fattr
-	expire time.Time
+type cachedDir struct {
+	// fh      []byte
+	entries map[string]*EntryPlus
+	expire  time.Time
 }
+
 type Target struct {
 	*rpc.Client
 
@@ -32,7 +33,7 @@ type Target struct {
 
 	entryTimeout time.Duration
 	cacheM       sync.Mutex
-	entries      map[string]map[string]*cacheEntry
+	cachedTree   map[string]*cachedDir
 }
 
 func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string, entryTimeout time.Duration) (*Target, error) {
@@ -54,7 +55,7 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string, entryTimeo
 		fh:           fh,
 		dirPath:      dirpath,
 		entryTimeout: entryTimeout,
-		entries:      make(map[string]map[string]*cacheEntry),
+		cachedTree:   make(map[string]*cachedDir),
 	}
 
 	fsinfo, err := vol.FSInfo()
@@ -123,19 +124,13 @@ func (v *Target) cleanupCache() {
 		v.cacheM.Lock()
 		now := time.Now()
 		var cnt int
-	OUTER:
-		for fh, es := range v.entries {
-			for n, e := range es {
-				if now.After(e.expire) {
-					delete(es, n)
-					if len(es) == 0 {
-						delete(v.entries, fh)
-					}
-				}
-				cnt++
-				if cnt > 1000 {
-					break OUTER
-				}
+		for ino, es := range v.cachedTree {
+			if now.After(es.expire) {
+				delete(v.cachedTree, ino)
+			}
+			cnt++
+			if cnt > 1000 {
+				break
 			}
 		}
 		v.cacheM.Unlock()
@@ -177,37 +172,24 @@ func (v *Target) parsefh(fh []byte) string {
 }
 
 func (v *Target) cachedLookup(fh []byte, name string) (*Fattr, []byte, error) {
-	ino := v.parsefh(fh)
 	v.cacheM.Lock()
-	es := v.entries[ino]
-	if es != nil {
-		e := es[name]
-		if e != nil && time.Since(e.expire) < 0 {
-			v.cacheM.Unlock()
-			return e.attr, e.fh, nil
-		}
+	defer v.cacheM.Unlock()
+	if err := v.checkCachedDir(fh); err != nil {
+		return nil, nil, err
 	}
-	v.cacheM.Unlock()
-	attr, fh, err := v.lookup(fh, name)
-	if err == nil && attr.Type == 2 { // only cache directories
-		if es == nil {
-			es = make(map[string]*cacheEntry)
-			v.entries[ino] = es
-		}
-		v.cacheM.Lock()
-		es[name] = &cacheEntry{fh, attr, time.Now().Add(v.entryTimeout)}
-		v.cacheM.Unlock()
+
+	if e, ok := v.cachedTree[v.parsefh(fh)].entries[name]; ok {
+		return &e.Attr.Attr, e.Handle.FH, nil
+	} else {
+		return nil, nil, os.ErrNotExist
 	}
-	return attr, fh, err
 }
 
 func (v *Target) invalidateEntryCache(fh []byte, name string) {
 	ino := v.parsefh(fh)
 	v.cacheM.Lock()
-	es, ok := v.entries[ino]
-	if ok {
-		delete(es, name)
-	}
+	// FIXME: refine
+	delete(v.cachedTree, ino)
 	v.cacheM.Unlock()
 }
 
@@ -261,7 +243,41 @@ func (v *Target) ReadDirPlus(dir string) ([]*EntryPlus, error) {
 		return nil, err
 	}
 
-	return v.readDirPlus(fh)
+	v.cacheM.Lock()
+	defer v.cacheM.Unlock()
+	if err = v.checkCachedDir(fh); err != nil {
+		return nil, err
+	}
+
+	var es []*EntryPlus
+	for _, e := range v.cachedTree[v.parsefh(fh)].entries {
+		es = append(es, e)
+	}
+	return es, nil
+}
+
+// protected by v.cacheM
+func (v *Target) checkCachedDir(fh []byte) error {
+	ino := v.parsefh(fh)
+	es := v.cachedTree[ino]
+	if es != nil && time.Since(es.expire) < 0 {
+		return nil
+	}
+	// FIXME: unlock cacheM during readdir
+	entries, err := v.readDirPlus(fh)
+	if err != nil {
+		return err
+	}
+	if es == nil {
+		es = &cachedDir{}
+		v.cachedTree[ino] = es
+	}
+	es.entries = make(map[string]*EntryPlus)
+	for _, entry := range entries {
+		es.entries[entry.FileName] = entry
+	}
+	es.expire = time.Now().Add(v.entryTimeout)
+	return nil
 }
 
 func (v *Target) readDirPlus(fh []byte) ([]*EntryPlus, error) {
