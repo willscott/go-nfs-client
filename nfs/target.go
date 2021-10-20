@@ -263,10 +263,17 @@ func (v *Target) checkCachedDir(fh []byte) error {
 	if es != nil && time.Since(es.expire) < 0 {
 		return nil
 	}
-	// FIXME: unlock cacheM during readdir
+
+	v.cacheM.Unlock()
 	entries, err := v.readDirPlus(fh)
+	v.cacheM.Lock()
 	if err != nil {
 		return err
+	}
+
+	es = v.cachedTree[ino]
+	if es != nil && time.Since(es.expire) < 0 { // updated by others
+		return nil
 	}
 	if es == nil {
 		es = &cachedDir{}
