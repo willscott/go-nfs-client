@@ -658,3 +658,55 @@ func (v *Target) removeAll(deleteDirfh []byte) error {
 
 	return nil
 }
+
+// Rename a file or directory
+func (v *Target) Rename(from, to string) error {
+	parentSrc, src := filepath.Split(from)
+	_, fhSrc, err := v.Lookup(parentSrc)
+	if err != nil {
+		return err
+	}
+	parentDst, dst := filepath.Split(to)
+	_, fhDst, err := v.Lookup(parentDst)
+	if err != nil {
+		return err
+	}
+
+	return v.rename(fhSrc, src, fhDst, dst)
+}
+
+// rename a file or directory
+func (v *Target) rename(fhSrc []byte, src string, fhDst []byte, dst string) error {
+	type RenameArgs struct {
+		rpc.Header
+		from Diropargs3
+		to   Diropargs3
+	}
+
+	_, err := v.call(&RenameArgs{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    Nfs3Prog,
+			Vers:    Nfs3Vers,
+			Proc:    NFSProc3Rename,
+			Cred:    v.auth,
+			Verf:    rpc.AuthNull,
+		},
+		from: Diropargs3{
+			FH:       fhSrc,
+			Filename: src,
+		},
+		to: Diropargs3{
+			FH:       fhDst,
+			Filename: dst,
+		},
+	})
+
+	if err != nil {
+		util.Debugf("rename(%s -> %s): %s", src, dst, err.Error())
+		return err
+	}
+	v.invalidateEntryCache(fhSrc, src)
+	v.invalidateEntryCache(fhDst, dst)
+	return nil
+}

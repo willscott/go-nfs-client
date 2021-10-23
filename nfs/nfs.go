@@ -29,6 +29,7 @@ const (
 	NFSProc3Mkdir       = 9
 	NFSProc3Remove      = 12
 	NFSProc3RmDir       = 13
+	NFSProc3Rename      = 14
 	NFSProc3ReadDirPlus = 17
 	NFSProc3FSInfo      = 19
 	NFSProc3Commit      = 21
