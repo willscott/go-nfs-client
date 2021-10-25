@@ -6,11 +6,14 @@ package rpc
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net"
+	"os"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/vmware/go-nfs-client/nfs/util"
@@ -44,25 +47,35 @@ func init() {
 
 type Client struct {
 	*tcpTransport
+	network string
+	ldr     *net.TCPAddr
+	addr    string
+	replies map[uint32]chan io.ReadSeeker
+}
+
+func isAddrInUse(err error) bool {
+	if er, ok := (err.(*net.OpError)); ok {
+		if syser, ok := er.Err.(*os.SyscallError); ok {
+			return syser.Err == syscall.EADDRINUSE
+		}
+	}
+	return false
 }
 
 func DialTCP(network string, ldr *net.TCPAddr, addr string) (*Client, error) {
-	a, err := net.ResolveTCPAddr(network, addr)
-	if err != nil {
+	c := &Client{
+		network: network,
+		ldr:     ldr,
+		addr:    addr,
+		replies: make(map[uint32]chan io.ReadSeeker),
+	}
+	if t, err := c.connect(); err != nil {
 		return nil, err
+	} else {
+		c.tcpTransport = t
 	}
-
-	conn, err := net.DialTCP(a.Network(), ldr, a)
-	if err != nil {
-		return nil, err
-	}
-
-	t := &tcpTransport{
-		r:  bufio.NewReader(conn),
-		wc: conn,
-	}
-
-	return &Client{t}, nil
+	go c.receive()
+	return c, nil
 }
 
 type message struct {
@@ -71,47 +84,118 @@ type message struct {
 	Body    interface{}
 }
 
-func (c *Client) Call(call interface{}) (io.ReadSeeker, error) {
-	retries := 1
+func (c *Client) receive() {
+	for {
+		c.Lock()
+		t := c.tcpTransport
+		c.Unlock()
+		if t == nil {
+			var err error
+			t, err = c.connect()
+			if err != nil {
+				time.Sleep(time.Millisecond * 100)
+				continue
+			}
+			c.Lock()
+			c.tcpTransport = t
+			c.Unlock()
+		}
+		res, err := t.recv()
+		if err != nil {
+			c.disconnect()
+			continue
+		}
+		xid, err := xdr.ReadUint32(res)
+		if err != nil {
+			c.disconnect()
+			continue
+		}
 
+		c.Lock()
+		r, ok := c.replies[xid]
+		c.Unlock()
+		if ok {
+			r <- res
+		}
+	}
+}
+
+func (c *Client) connect() (*tcpTransport, error) {
+	a, err := net.ResolveTCPAddr(c.network, c.addr)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.DialTCP(a.Network(), c.ldr, a)
+	if err != nil {
+		// bind error, try again
+		if isAddrInUse(err) {
+			c.ldr = nil
+		}
+		return nil, err
+	}
+	return &tcpTransport{
+		r:  bufio.NewReader(conn),
+		wc: conn,
+	}, nil
+}
+
+func (c *Client) disconnect() {
+	c.Close()
+	c.Lock()
+	c.tcpTransport = nil
+	for _, r := range c.replies {
+		close(r)
+	}
+	c.Unlock()
+}
+
+func (c *Client) Call(call interface{}) (io.ReadSeeker, error) {
 	msg := &message{
 		Xid:  atomic.AddUint32(&xid, 1),
 		Body: call,
 	}
-
-retry:
 	w := new(bytes.Buffer)
 	if err := xdr.Write(w, msg); err != nil {
 		return nil, err
 	}
 
-	c.Lock()
-	if _, err := c.Write(w.Bytes()); err != nil {
-		c.Unlock()
-		return nil, err
+	retries := 0
+	garbage := false
+retry:
+	retries++
+	if retries > 100 {
+		return nil, errors.New("disconnected")
 	}
 
-	res, err := c.recv()
-	if err != nil {
+	c.Lock()
+	if c.tcpTransport == nil {
+		time.Sleep(time.Millisecond * 100)
 		c.Unlock()
-		return nil, err
+		goto retry
 	}
+	if _, err := c.Write(w.Bytes()); err != nil {
+		c.Close()
+		c.tcpTransport = nil
+		c.Unlock()
+		goto retry
+	}
+	reply := make(chan io.ReadSeeker)
+	c.replies[msg.Xid] = reply
 	c.Unlock()
 
-	xid, err := xdr.ReadUint32(res)
-	if err != nil {
-		return nil, err
-	}
+	res := <-reply
+	c.Lock()
+	delete(c.replies, msg.Xid)
+	c.Unlock()
 
-	if xid != msg.Xid {
-		return nil, fmt.Errorf("xid did not match, expected: %x, received: %x", msg.Xid, xid)
+	if res == nil {
+		goto retry
 	}
 
 	mtype, err := xdr.ReadUint32(res)
 	if err != nil {
 		return nil, err
 	}
-
 	if mtype != 1 {
 		return nil, fmt.Errorf("message as not a reply: %d", mtype)
 	}
@@ -153,9 +237,9 @@ retry:
 			return nil, fmt.Errorf("rpc: PROC_UNAVAIL - unrecognized procedure number")
 		case GarbageArgs:
 			// emulate Linux behaviour for GARBAGE_ARGS
-			if retries > 0 {
+			if !garbage {
 				util.Debugf("Retrying on GARBAGE_ARGS per linux semantics")
-				retries--
+				garbage = true
 				goto retry
 			}
 
