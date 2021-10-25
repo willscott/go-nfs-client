@@ -17,14 +17,12 @@ type tcpTransport struct {
 	wc      net.Conn
 	timeout time.Duration
 
-	rlock, wlock sync.Mutex
+	sync.Mutex
 }
 
 // Get the response from the conn, buffer the contents, and return a reader to
 // it.
 func (t *tcpTransport) recv() (io.ReadSeeker, error) {
-	t.rlock.Lock()
-	defer t.rlock.Unlock()
 	if t.timeout != 0 {
 		deadline := time.Now().Add(t.timeout)
 		t.wc.SetReadDeadline(deadline)
@@ -44,9 +42,6 @@ func (t *tcpTransport) recv() (io.ReadSeeker, error) {
 }
 
 func (t *tcpTransport) Write(buf []byte) (int, error) {
-	t.wlock.Lock()
-	defer t.wlock.Unlock()
-
 	var hdr uint32 = uint32(len(buf)) | 0x80000000
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint32(b, hdr)

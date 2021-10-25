@@ -85,14 +85,18 @@ retry:
 		return nil, err
 	}
 
+	c.Lock()
 	if _, err := c.Write(w.Bytes()); err != nil {
+		c.Unlock()
 		return nil, err
 	}
 
 	res, err := c.recv()
 	if err != nil {
+		c.Unlock()
 		return nil, err
 	}
+	c.Unlock()
 
 	xid, err := xdr.ReadUint32(res)
 	if err != nil {
