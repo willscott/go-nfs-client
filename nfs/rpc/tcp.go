@@ -23,11 +23,6 @@ type tcpTransport struct {
 // Get the response from the conn, buffer the contents, and return a reader to
 // it.
 func (t *tcpTransport) recv() (io.ReadSeeker, error) {
-	if t.timeout != 0 {
-		deadline := time.Now().Add(t.timeout)
-		t.wc.SetReadDeadline(deadline)
-	}
-
 	var hdr uint32
 	if err := binary.Read(t.r, binary.BigEndian, &hdr); err != nil {
 		return nil, err
