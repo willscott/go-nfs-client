@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -47,6 +48,7 @@ func init() {
 
 type Client struct {
 	*tcpTransport
+	sync.Mutex
 	network string
 	ldr     *net.TCPAddr
 	addr    string
@@ -116,6 +118,8 @@ func (c *Client) receive() {
 		c.Unlock()
 		if ok {
 			r <- res
+		} else {
+			util.Errorf("received unexpected response with xid: %x", xid)
 		}
 	}
 }

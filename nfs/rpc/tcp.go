@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-	"sync"
 	"time"
 )
 
@@ -16,8 +15,6 @@ type tcpTransport struct {
 	r       io.Reader
 	wc      net.Conn
 	timeout time.Duration
-
-	sync.Mutex
 }
 
 // Get the response from the conn, buffer the contents, and return a reader to
