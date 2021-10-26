@@ -672,8 +672,8 @@ func (v *Target) Rename(from, to string) error {
 func (v *Target) rename(fhSrc []byte, src string, fhDst []byte, dst string) error {
 	type RenameArgs struct {
 		rpc.Header
-		from Diropargs3
-		to   Diropargs3
+		From Diropargs3
+		To   Diropargs3
 	}
 
 	_, err := v.call(&RenameArgs{
@@ -685,11 +685,11 @@ func (v *Target) rename(fhSrc []byte, src string, fhDst []byte, dst string) erro
 			Cred:    v.auth,
 			Verf:    rpc.AuthNull,
 		},
-		from: Diropargs3{
+		From: Diropargs3{
 			FH:       fhSrc,
 			Filename: src,
 		},
-		to: Diropargs3{
+		To: Diropargs3{
 			FH:       fhDst,
 			Filename: dst,
 		},
