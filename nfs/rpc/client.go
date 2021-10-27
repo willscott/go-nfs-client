@@ -49,13 +49,14 @@ func init() {
 type Client struct {
 	*tcpTransport
 	sync.Mutex
-	network string
-	ldr     *net.TCPAddr
-	addr    string
-	replies map[uint32]chan io.ReadSeeker
+	privileged bool
+	network    string
+	ldr        *net.TCPAddr
+	addr       string
+	replies    map[uint32]chan io.ReadSeeker
 }
 
-func isAddrInUse(err error) bool {
+func IsAddrInUse(err error) bool {
 	if er, ok := (err.(*net.OpError)); ok {
 		if syser, ok := er.Err.(*os.SyscallError); ok {
 			return syser.Err == syscall.EADDRINUSE
@@ -104,7 +105,10 @@ func (c *Client) receive() {
 		}
 		res, err := t.recv()
 		if err != nil {
-			c.disconnect()
+			if err != io.EOF {
+				util.Infof("nfs rpc: recv got error: %s", err)
+				c.disconnect()
+			}
 			continue
 		}
 		xid, err := xdr.ReadUint32(res)
@@ -132,8 +136,18 @@ func (c *Client) connect() (*tcpTransport, error) {
 	conn, err := net.DialTCP(a.Network(), c.ldr, a)
 	if err != nil {
 		// bind error, try again
-		if isAddrInUse(err) {
-			c.ldr = nil
+		if IsAddrInUse(err) {
+			if c.privileged {
+				r1 := rand.New(rand.NewSource(time.Now().UnixNano()))
+				p := r1.Intn(1023) + 1
+				if c.ldr == nil {
+					c.ldr = &net.TCPAddr{Port: p}
+				} else {
+					c.ldr.Port = p
+				}
+			} else {
+				c.ldr = nil
+			}
 		}
 		return nil, err
 	}
@@ -151,6 +165,10 @@ func (c *Client) disconnect() {
 		close(r)
 	}
 	c.Unlock()
+}
+
+func (c *Client) SetPrivileged() {
+	c.privileged = true
 }
 
 func (c *Client) Call(call interface{}) (io.ReadSeeker, error) {

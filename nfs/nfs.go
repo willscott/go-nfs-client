@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/user"
-	"syscall"
 	"time"
 
 	"github.com/vmware/go-nfs-client/nfs/rpc"
@@ -257,11 +256,7 @@ func dialService(addr string, port int) (*rpc.Client, error) {
 
 		var p int
 		for {
-			p = r1.Intn(1024)
-			if p < 0 {
-				continue
-			}
-
+			p = r1.Intn(1023) + 1
 			ldr = &net.TCPAddr{
 				Port: p,
 			}
@@ -274,13 +269,14 @@ func dialService(addr string, port int) (*rpc.Client, error) {
 				break
 			}
 			// bind error, try again
-			if isAddrInUse(err) {
+			if rpc.IsAddrInUse(err) {
 				continue
 			}
 
 			return nil, err
 		}
 
+		client.SetPrivileged()
 		util.Debugf("using random port %d -> %d", p, port)
 	} else {
 		raddr := fmt.Sprintf("%s:%d", addr, port)
@@ -293,14 +289,4 @@ func dialService(addr string, port int) (*rpc.Client, error) {
 	}
 
 	return client, nil
-}
-
-func isAddrInUse(err error) bool {
-	if er, ok := (err.(*net.OpError)); ok {
-		if syser, ok := er.Err.(*os.SyscallError); ok {
-			return syser.Err == syscall.EADDRINUSE
-		}
-	}
-
-	return false
 }
