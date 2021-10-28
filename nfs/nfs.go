@@ -5,8 +5,6 @@ package nfs
 
 import (
 	"fmt"
-	"math/rand"
-	"net"
 	"os"
 	"os/user"
 	"time"
@@ -243,29 +241,16 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 }
 
 func dialService(addr string, port int) (*rpc.Client, error) {
-	var (
-		ldr    *net.TCPAddr
-		client *rpc.Client
-	)
-
+	var client *rpc.Client
 	usr, err := user.Current()
+	raddr := fmt.Sprintf("%s:%d", addr, port)
 
 	// Unless explicitly configured, the target will likely reject connections
 	// from non-privileged ports.
 	if err == nil && usr.Uid == "0" {
-		r1 := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-		var p int
+		util.Debugf("Connecting to %s", raddr)
 		for {
-			p = r1.Intn(1023) + 1
-			ldr = &net.TCPAddr{
-				Port: p,
-			}
-
-			raddr := fmt.Sprintf("%s:%d", addr, port)
-			util.Debugf("Connecting to %s", raddr)
-
-			client, err = rpc.DialTCP("tcp", ldr, raddr)
+			client, err = rpc.DialTCP("tcp", raddr, true)
 			if err == nil {
 				break
 			}
@@ -273,17 +258,11 @@ func dialService(addr string, port int) (*rpc.Client, error) {
 			if rpc.IsAddrInUse(err) {
 				continue
 			}
-
 			return nil, err
 		}
-
-		client.SetPrivileged()
-		util.Debugf("using random port %d -> %d", p, port)
 	} else {
-		raddr := fmt.Sprintf("%s:%d", addr, port)
 		util.Debugf("Connecting to %s from unprivileged port", raddr)
-
-		client, err = rpc.DialTCP("tcp", ldr, raddr)
+		client, err = rpc.DialTCP("tcp", raddr, false)
 		if err != nil {
 			return nil, err
 		}

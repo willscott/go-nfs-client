@@ -66,13 +66,14 @@ func IsAddrInUse(err error) bool {
 	return false
 }
 
-func DialTCP(network string, ldr *net.TCPAddr, addr string) (*Client, error) {
+func DialTCP(network string, addr string, privileged bool) (*Client, error) {
 	c := &Client{
-		network: network,
-		ldr:     ldr,
-		addr:    addr,
-		replies: make(map[uint32]chan io.ReadSeeker),
+		privileged: privileged,
+		network:    network,
+		addr:       addr,
+		replies:    make(map[uint32]chan io.ReadSeeker),
 	}
+	c.pickLdr()
 	if t, err := c.connect(); err != nil {
 		return nil, err
 	} else {
@@ -80,6 +81,18 @@ func DialTCP(network string, ldr *net.TCPAddr, addr string) (*Client, error) {
 	}
 	go c.receive()
 	return c, nil
+}
+
+func (c *Client) pickLdr() {
+	if c.privileged {
+		r1 := rand.New(rand.NewSource(time.Now().UnixNano()))
+		p := r1.Intn(1023) + 1
+		if c.ldr == nil {
+			c.ldr = &net.TCPAddr{Port: p}
+		} else {
+			c.ldr.Port = p
+		}
+	}
 }
 
 type message struct {
@@ -138,22 +151,13 @@ func (c *Client) connect() (*tcpTransport, error) {
 	}
 	conn, err := net.DialTCP(a.Network(), c.ldr, a)
 	if err != nil {
-		// bind error, try again
+		// bind error, pick a new port
 		if IsAddrInUse(err) {
-			if c.privileged {
-				r1 := rand.New(rand.NewSource(time.Now().UnixNano()))
-				p := r1.Intn(1023) + 1
-				if c.ldr == nil {
-					c.ldr = &net.TCPAddr{Port: p}
-				} else {
-					c.ldr.Port = p
-				}
-			} else {
-				c.ldr = nil
-			}
+			c.pickLdr()
 		}
 		return nil, err
 	}
+	util.Debugf("connected with local %s -> remote %s", c.ldr, c.addr)
 	return &tcpTransport{
 		r:  bufio.NewReader(conn),
 		wc: conn,
@@ -174,10 +178,6 @@ func (c *Client) WillClose() {
 	c.Lock()
 	c.willClose = true
 	c.Unlock()
-}
-
-func (c *Client) SetPrivileged() {
-	c.privileged = true
 }
 
 func (c *Client) Call(call interface{}) (io.ReadSeeker, error) {
