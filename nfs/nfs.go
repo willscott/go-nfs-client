@@ -226,6 +226,7 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 		util.Errorf("Failed to connect to portmapper: %s", err)
 		return nil, err
 	}
+	pm.WillClose()
 	defer pm.Close()
 
 	port, err := pm.Getport(prog)

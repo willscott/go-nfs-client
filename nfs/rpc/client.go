@@ -49,6 +49,7 @@ func init() {
 type Client struct {
 	*tcpTransport
 	sync.Mutex
+	willClose  bool
 	privileged bool
 	network    string
 	ldr        *net.TCPAddr
@@ -105,10 +106,8 @@ func (c *Client) receive() {
 		}
 		res, err := t.recv()
 		if err != nil {
-			if err != io.EOF {
-				util.Infof("nfs rpc: recv got error: %s", err)
-				c.disconnect()
-			}
+			util.Infof("nfs rpc: recv got error: %s", err)
+			c.disconnect()
 			continue
 		}
 		xid, err := xdr.ReadUint32(res)
@@ -119,11 +118,15 @@ func (c *Client) receive() {
 
 		c.Lock()
 		r, ok := c.replies[xid]
+		close := c.willClose
 		c.Unlock()
 		if ok {
 			r <- res
 		} else {
 			util.Errorf("received unexpected response with xid: %x", xid)
+		}
+		if close {
+			return
 		}
 	}
 }
@@ -164,6 +167,12 @@ func (c *Client) disconnect() {
 	for _, r := range c.replies {
 		close(r)
 	}
+	c.Unlock()
+}
+
+func (c *Client) WillClose() {
+	c.Lock()
+	c.willClose = true
 	c.Unlock()
 }
 
