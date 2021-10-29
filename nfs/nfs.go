@@ -224,7 +224,6 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 		util.Errorf("Failed to connect to portmapper: %s", err)
 		return nil, err
 	}
-	pm.WillClose()
 	defer pm.Close()
 
 	port, err := pm.Getport(prog)
@@ -232,41 +231,14 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 		return nil, err
 	}
 
-	client, err := dialService(addr, port)
-	if err != nil {
-		return nil, err
-	}
-
-	return client, nil
+	return dialService(addr, port)
 }
 
 func dialService(addr string, port int) (*rpc.Client, error) {
-	var client *rpc.Client
 	usr, err := user.Current()
 	raddr := fmt.Sprintf("%s:%d", addr, port)
-
 	// Unless explicitly configured, the target will likely reject connections
 	// from non-privileged ports.
-	if err == nil && usr.Uid == "0" {
-		util.Debugf("Connecting to %s", raddr)
-		for {
-			client, err = rpc.DialTCP("tcp", raddr, true)
-			if err == nil {
-				break
-			}
-			// bind error, try again
-			if rpc.IsAddrInUse(err) {
-				continue
-			}
-			return nil, err
-		}
-	} else {
-		util.Debugf("Connecting to %s from unprivileged port", raddr)
-		client, err = rpc.DialTCP("tcp", raddr, false)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return client, nil
+	util.Debugf("Connecting to %s", raddr)
+	return rpc.DialTCP("tcp", raddr, err == nil && usr.Uid == "0")
 }

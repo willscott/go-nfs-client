@@ -49,15 +49,15 @@ func init() {
 type Client struct {
 	*tcpTransport
 	sync.Mutex
-	willClose  bool
-	privileged bool
 	network    string
-	ldr        *net.TCPAddr
 	addr       string
-	replies    map[uint32]chan io.ReadSeeker
+	privileged bool
+
+	closed  bool
+	replies map[uint32]chan io.ReadSeeker
 }
 
-func IsAddrInUse(err error) bool {
+func isAddrInUse(err error) bool {
 	if er, ok := (err.(*net.OpError)); ok {
 		if syser, ok := er.Err.(*os.SyscallError); ok {
 			return syser.Err == syscall.EADDRINUSE
@@ -68,12 +68,11 @@ func IsAddrInUse(err error) bool {
 
 func DialTCP(network string, addr string, privileged bool) (*Client, error) {
 	c := &Client{
-		privileged: privileged,
 		network:    network,
 		addr:       addr,
+		privileged: privileged,
 		replies:    make(map[uint32]chan io.ReadSeeker),
 	}
-	c.pickLdr()
 	if t, err := c.connect(); err != nil {
 		return nil, err
 	} else {
@@ -83,16 +82,13 @@ func DialTCP(network string, addr string, privileged bool) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) pickLdr() {
+func (c *Client) pickLdr() *net.TCPAddr {
 	if c.privileged {
 		r1 := rand.New(rand.NewSource(time.Now().UnixNano()))
 		p := r1.Intn(1023) + 1
-		if c.ldr == nil {
-			c.ldr = &net.TCPAddr{Port: p}
-		} else {
-			c.ldr.Port = p
-		}
+		return &net.TCPAddr{Port: p}
 	}
+	return nil
 }
 
 type message struct {
@@ -104,6 +100,10 @@ type message struct {
 func (c *Client) receive() {
 	for {
 		c.Lock()
+		if c.closed {
+			c.Unlock()
+			break
+		}
 		t := c.tcpTransport
 		c.Unlock()
 		if t == nil {
@@ -119,7 +119,7 @@ func (c *Client) receive() {
 		}
 		res, err := t.recv()
 		if err != nil {
-			util.Infof("nfs rpc: recv got error: %s", err)
+			util.Debugf("nfs rpc: recv got error: %s", err)
 			c.disconnect()
 			continue
 		}
@@ -131,15 +131,11 @@ func (c *Client) receive() {
 
 		c.Lock()
 		r, ok := c.replies[xid]
-		close := c.willClose
 		c.Unlock()
 		if ok {
 			r <- res
 		} else {
 			util.Errorf("received unexpected response with xid: %x", xid)
-		}
-		if close {
-			return
 		}
 	}
 }
@@ -149,15 +145,15 @@ func (c *Client) connect() (*tcpTransport, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.DialTCP(a.Network(), c.ldr, a)
-	if err != nil {
+	conn, err := net.DialTCP(a.Network(), c.pickLdr(), a)
+	for err != nil && isAddrInUse(err) && c.privileged {
 		// bind error, pick a new port
-		if IsAddrInUse(err) {
-			c.pickLdr()
-		}
+		conn, err = net.DialTCP(a.Network(), c.pickLdr(), a)
+	}
+	if err != nil {
 		return nil, err
 	}
-	util.Debugf("connected with local %s -> remote %s", c.ldr, c.addr)
+	util.Debugf("connected with local %s -> remote %s", conn.LocalAddr(), c.addr)
 	return &tcpTransport{
 		r:  bufio.NewReader(conn),
 		wc: conn,
@@ -165,19 +161,22 @@ func (c *Client) connect() (*tcpTransport, error) {
 }
 
 func (c *Client) disconnect() {
-	c.Close()
 	c.Lock()
-	c.tcpTransport = nil
+	defer c.Unlock()
+	if c.tcpTransport != nil {
+		c.tcpTransport.Close()
+		c.tcpTransport = nil
+	}
 	for _, r := range c.replies {
 		close(r)
 	}
-	c.Unlock()
 }
 
-func (c *Client) WillClose() {
+func (c *Client) Close() {
 	c.Lock()
-	c.willClose = true
+	c.closed = true
 	c.Unlock()
+	c.disconnect()
 }
 
 func (c *Client) Call(call interface{}) (io.ReadSeeker, error) {
@@ -200,14 +199,13 @@ retry:
 
 	c.Lock()
 	if c.tcpTransport == nil {
-		time.Sleep(time.Millisecond * 100)
 		c.Unlock()
+		time.Sleep(time.Millisecond * 100)
 		goto retry
 	}
 	if _, err := c.Write(w.Bytes()); err != nil {
-		c.Close()
-		c.tcpTransport = nil
 		c.Unlock()
+		c.disconnect()
 		goto retry
 	}
 	reply := make(chan io.ReadSeeker)
