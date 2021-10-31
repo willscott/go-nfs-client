@@ -259,21 +259,41 @@ func (v *Target) ReadDirPlus(dir string) ([]*EntryPlus, error) {
 // protected by v.cacheM
 func (v *Target) checkCachedDir(fh []byte) error {
 	ino := v.parsefh(fh)
-	es := v.cachedTree[ino]
-	if es != nil && time.Since(es.expire) < 0 {
+	es, ok := v.cachedTree[ino]
+	if ok && time.Since(es.expire) < 0 {
 		return nil
 	}
 
+	v.cacheM.Unlock()
 	entries, err := v.readDirPlus(fh)
+	v.cacheM.Lock()
 	if err != nil {
 		return err
 	}
-	if es == nil {
+
+	es, ok = v.cachedTree[ino]
+	if ok && time.Since(es.expire) < 0 { // updated by others
+		var myMtime time.Time
+		for _, entry := range entries {
+			if entry.FileName == "." {
+				myMtime = entry.ModTime()
+				break
+			}
+		}
+		if !myMtime.After(es.entries["."].ModTime()) {
+			// es.expire = time.Now().Add(v.entryTimeout)
+			return nil
+		}
+	}
+	if !ok {
 		es = &cachedDir{}
 		v.cachedTree[ino] = es
 	}
 	es.entries = make(map[string]*EntryPlus)
 	for _, entry := range entries {
+		if entry.FileName == ".." {
+			continue
+		}
 		es.entries[entry.FileName] = entry
 	}
 	es.expire = time.Now().Add(v.entryTimeout)
