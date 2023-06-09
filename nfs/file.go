@@ -1,6 +1,5 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import (
@@ -11,6 +10,12 @@ import (
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 	"github.com/vmware/go-nfs-client/nfs/util"
 	"github.com/vmware/go-nfs-client/nfs/xdr"
+)
+
+var (
+	_ io.ReadWriteSeeker = &File{}
+	_ io.Closer          = &File{}
+	_ io.ReaderAt        = &File{}
 )
 
 // File wraps the NfsProc3Read and NfsProc3Write methods to implement a
@@ -68,6 +73,25 @@ func (f *File) Readlink() (string, error) {
 }
 
 func (f *File) Read(p []byte) (int, error) {
+	n, err := f.readAt(p, int64(f.curr))
+	if err == nil {
+		f.curr += uint64(n)
+	}
+	return n, err
+}
+
+func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
+	n, err = f.readAt(p, int64(f.curr))
+	if err != nil {
+		return
+	}
+	if n < len(p) {
+		err = io.EOF
+	}
+	return
+}
+
+func (f *File) readAt(p []byte, off int64) (n int, err error) {
 	type ReadArgs struct {
 		rpc.Header
 		FH     []byte
@@ -84,8 +108,8 @@ func (f *File) Read(p []byte) (int, error) {
 		}
 	}
 
-	readSize := min(f.fsinfo.RTPref, uint32(len(p)))
-	util.Debugf("read(%x) len=%d offset=%d", f.fh, readSize, f.curr)
+	readSize := min(f.fsinfo.RTMax, uint32(len(p)))
+	util.Debugf("read(%x) len=%d offset=%d", f.fh, readSize, off)
 
 	r, err := f.call(&ReadArgs{
 		Header: rpc.Header{
@@ -97,7 +121,7 @@ func (f *File) Read(p []byte) (int, error) {
 			Verf:    rpc.AuthNull,
 		},
 		FH:     f.fh,
-		Offset: uint64(f.curr),
+		Offset: uint64(off),
 		Count:  readSize,
 	})
 
@@ -111,8 +135,7 @@ func (f *File) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	f.curr = f.curr + uint64(readres.Data.Length)
-	n, err := r.Read(p[:readres.Data.Length])
+	n, err = r.Read(p[:readres.Data.Length])
 	if err != nil {
 		return n, err
 	}
@@ -120,7 +143,6 @@ func (f *File) Read(p []byte) (int, error) {
 	if readres.EOF != 0 {
 		err = io.EOF
 	}
-
 	return n, err
 }
 
