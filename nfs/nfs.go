@@ -1,6 +1,5 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import (
@@ -18,12 +17,15 @@ const (
 	Nfs3Vers = 3
 
 	// program methods
+	NFSProc3GetAttr     = 1
+	NFSProc3SetAttr     = 2
 	NFSProc3Lookup      = 3
 	NFSProc3Readlink    = 5
 	NFSProc3Read        = 6
 	NFSProc3Write       = 7
 	NFSProc3Create      = 8
 	NFSProc3Mkdir       = 9
+	NFSProc3Symlink     = 10
 	NFSProc3Remove      = 12
 	NFSProc3RmDir       = 13
 	NFSProc3Rename      = 14
@@ -190,7 +192,7 @@ func (e *EntryPlus) Sys() interface{} {
 		return 0
 	}
 
-	return e.FileId
+	return &e.Attr.Attr
 }
 
 type WccData struct {

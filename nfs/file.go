@@ -81,14 +81,7 @@ func (f *File) Read(p []byte) (int, error) {
 }
 
 func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
-	n, err = f.readAt(p, int64(f.curr))
-	if err != nil {
-		return
-	}
-	if n < len(p) {
-		err = io.EOF
-	}
-	return
+	return f.readAt(p, int64(f.curr))
 }
 
 func (f *File) readAt(p []byte, off int64) (n int, err error) {

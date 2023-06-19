@@ -1,6 +1,5 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import (
@@ -139,7 +138,7 @@ func (v *Target) cleanupCache() {
 }
 
 // Lookup returns attributes and the file handle to a given dirent
-func (v *Target) Lookup(p string) (os.FileInfo, []byte, error) {
+func (v *Target) Lookup(p string, cached ...bool) (os.FileInfo, []byte, error) {
 	var (
 		err   error
 		fattr *Fattr
@@ -155,7 +154,11 @@ func (v *Target) Lookup(p string) (os.FileInfo, []byte, error) {
 			dirent = "."
 		}
 
-		fattr, fh, err = v.cachedLookup(fh, dirent)
+		if len(cached) > 0 && cached[0] {
+			fattr, fh, err = v.cachedLookup(fh, dirent)
+		} else {
+			fattr, fh, err = v.lookup(fh, dirent)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -265,7 +268,37 @@ func (v *Target) checkCachedDir(fh []byte) error {
 	}
 
 	v.cacheM.Unlock()
-	entries, err := v.readDirPlus(fh)
+	var (
+		entries    []*EntryPlus
+		entriesMap map[string]*EntryPlus
+		err        error
+		dattr      *Fattr
+	)
+
+	for {
+		entriesMap = make(map[string]*EntryPlus)
+		entries, err = v.readDirPlus(fh)
+		if err != nil {
+			break
+		}
+		for _, entry := range entries {
+			if entry.FileName == ".." {
+				continue
+			}
+			entriesMap[entry.FileName] = entry
+		}
+		dir := entriesMap["."]
+		if dir == nil {
+			continue
+		}
+		dattr, err = v.GetAttr(fh)
+		if err != nil {
+			break
+		}
+		if dattr.ModTime().Equal(dir.ModTime()) {
+			break
+		}
+	}
 	v.cacheM.Lock()
 	if err != nil {
 		return err
@@ -273,14 +306,7 @@ func (v *Target) checkCachedDir(fh []byte) error {
 
 	es, ok = v.cachedTree[ino]
 	if ok && time.Since(es.expire) < 0 { // updated by others
-		var myMtime time.Time
-		for _, entry := range entries {
-			if entry.FileName == "." {
-				myMtime = entry.ModTime()
-				break
-			}
-		}
-		if !myMtime.After(es.entries["."].ModTime()) {
+		if !entriesMap["."].ModTime().After(es.entries["."].ModTime()) {
 			// es.expire = time.Now().Add(v.entryTimeout)
 			return nil
 		}
@@ -289,15 +315,88 @@ func (v *Target) checkCachedDir(fh []byte) error {
 		es = &cachedDir{}
 		v.cachedTree[ino] = es
 	}
-	es.entries = make(map[string]*EntryPlus)
-	for _, entry := range entries {
-		if entry.FileName == ".." {
-			continue
-		}
-		es.entries[entry.FileName] = entry
-	}
+	es.entries = entriesMap
 	es.expire = time.Now().Add(v.entryTimeout)
 	return nil
+}
+
+// GetAttr returns the attributes of the file/directory specified by fh
+func (v *Target) GetAttr(fh []byte) (*Fattr, error) {
+	type GetAttr3Args struct {
+		rpc.Header
+		FH []byte
+	}
+
+	type GetAttr3Res struct {
+		Attr struct {
+			Attr Fattr
+		}
+	}
+
+	res, err := v.call(&GetAttr3Args{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    Nfs3Prog,
+			Vers:    Nfs3Vers,
+			Proc:    NFSProc3GetAttr,
+			Cred:    v.auth,
+			Verf:    rpc.AuthNull,
+		},
+		FH: fh,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	getattrres := new(GetAttr3Res)
+	if err := xdr.Read(res, getattrres); err != nil {
+		return nil, err
+	}
+
+	return &getattrres.Attr.Attr, nil
+}
+
+// SetAttr sets the attributes of the file/directory specified by fh
+func (v *Target) SetAttr(fh []byte, sattr Sattr3) (*Fattr, error) {
+	type GuardTime struct {
+		IsSet     bool     `xdr:"union"`
+		GuardTime NFS3Time `xdr:"unioncase=1"`
+	}
+
+	type SetAttr3Args struct {
+		rpc.Header
+		FH        []byte
+		Attr      Sattr3
+		GuardTime GuardTime
+	}
+
+	type SetAttr3Res struct {
+		DirWcc WccData
+	}
+
+	res, err := v.call(&SetAttr3Args{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    Nfs3Prog,
+			Vers:    Nfs3Vers,
+			Proc:    NFSProc3SetAttr,
+			Cred:    v.auth,
+			Verf:    rpc.AuthNull,
+		},
+		FH:   fh,
+		Attr: sattr,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	setattrres := new(SetAttr3Res)
+	if err := xdr.Read(res, setattrres); err != nil {
+		return nil, err
+	}
+	return &setattrres.DirWcc.After.Attr, nil
 }
 
 func (v *Target) readDirPlus(fh []byte) ([]*EntryPlus, error) {
@@ -721,5 +820,47 @@ func (v *Target) rename(fhSrc []byte, src string, fhDst []byte, dst string) erro
 	}
 	v.invalidateEntryCache(fhSrc, src)
 	v.invalidateEntryCache(fhDst, dst)
+	return nil
+}
+
+// Symlink creates a symbolic link refer to src
+func (v *Target) Symlink(src, dst string) error {
+	parentDst, dst := filepath.Split(dst)
+	_, fhDst, err := v.Lookup(parentDst)
+	if err != nil {
+		return err
+	}
+
+	return v.symlink(src, fhDst, dst)
+}
+
+func (v *Target) symlink(srcPath string, fhDst []byte, dst string) error {
+	type SymlinkArgs struct {
+		rpc.Header
+		Link             Diropargs3
+		Sattr            Sattr3
+		SymbolicLinkData string
+	}
+
+	_, err := v.call(&SymlinkArgs{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    Nfs3Prog,
+			Vers:    Nfs3Vers,
+			Proc:    NFSProc3Symlink,
+			Cred:    v.auth,
+			Verf:    rpc.AuthNull,
+		},
+		Link: Diropargs3{
+			FH:       fhDst,
+			Filename: dst,
+		},
+		SymbolicLinkData: srcPath,
+	})
+
+	if err != nil {
+		util.Debugf("symlink(%s -> %s): %s", srcPath, dst, err.Error())
+		return err
+	}
 	return nil
 }
