@@ -254,6 +254,9 @@ func (v *Target) ReadDirPlus(dir string) ([]*EntryPlus, error) {
 
 	var es []*EntryPlus
 	for _, e := range v.cachedTree[v.parsefh(fh)].entries {
+		if e.FileName == "." || e.FileName == ".." {
+			continue
+		}
 		es = append(es, e)
 	}
 	return es, nil
@@ -282,9 +285,6 @@ func (v *Target) checkCachedDir(fh []byte) error {
 			break
 		}
 		for _, entry := range entries {
-			if entry.FileName == ".." {
-				continue
-			}
 			entriesMap[entry.FileName] = entry
 		}
 		dir := entriesMap["."]
