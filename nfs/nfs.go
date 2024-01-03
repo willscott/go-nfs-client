@@ -1,15 +1,11 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import (
 	"fmt"
-	"math/rand"
-	"net"
 	"os"
 	"os/user"
-	"syscall"
 	"time"
 
 	"github.com/willscott/go-nfs-client/nfs/rpc"
@@ -31,8 +27,8 @@ const (
 	Nfs3Vers = 3
 
 	// program methods
-	NFSProc3Getattr     = 1
-	NFSProc3Setattr     = 2
+	NFSProc3GetAttr     = 1
+	NFSProc3SetAttr     = 2
 	NFSProc3Lookup      = 3
 	NFSProc3Access      = 4
 	NFSProc3Readlink    = 5
@@ -43,6 +39,7 @@ const (
 	NFSProc3Symlink     = 10
 	NFSProc3Remove      = 12
 	NFSProc3RmDir       = 13
+	NFSProc3Rename      = 14
 	NFSProc3ReadDirPlus = 17
 	NFSProc3FSInfo      = 19
 	NFSProc3Commit      = 21
@@ -225,7 +222,7 @@ func (e *EntryPlus) Sys() interface{} {
 		return 0
 	}
 
-	return e.FileId
+	return &e.Attr.Attr
 }
 
 type WccData struct {
@@ -266,73 +263,14 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 		return nil, err
 	}
 
-	client, err := dialService(addr, port)
-	if err != nil {
-		return nil, err
-	}
-
-	return client, nil
+	return dialService(addr, port)
 }
 
 func dialService(addr string, port int) (*rpc.Client, error) {
-	var (
-		ldr    *net.TCPAddr
-		client *rpc.Client
-	)
-
 	usr, err := user.Current()
-
+	raddr := fmt.Sprintf("%s:%d", addr, port)
 	// Unless explicitly configured, the target will likely reject connections
 	// from non-privileged ports.
-	if err == nil && usr.Uid == "0" {
-		r1 := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-		var p int
-		for {
-			p = r1.Intn(1024)
-			if p < 0 {
-				continue
-			}
-
-			ldr = &net.TCPAddr{
-				Port: p,
-			}
-
-			raddr := fmt.Sprintf("%s:%d", addr, port)
-			util.Debugf("Connecting to %s", raddr)
-
-			client, err = rpc.DialTCP("tcp", ldr, raddr)
-			if err == nil {
-				break
-			}
-			// bind error, try again
-			if isAddrInUse(err) {
-				continue
-			}
-
-			return nil, err
-		}
-
-		util.Debugf("using random port %d -> %d", p, port)
-	} else {
-		raddr := fmt.Sprintf("%s:%d", addr, port)
-		util.Debugf("Connecting to %s from unprivileged port", raddr)
-
-		client, err = rpc.DialTCP("tcp", ldr, raddr)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return client, nil
-}
-
-func isAddrInUse(err error) bool {
-	if er, ok := (err.(*net.OpError)); ok {
-		if syser, ok := er.Err.(*os.SyscallError); ok {
-			return syser.Err == syscall.EADDRINUSE
-		}
-	}
-
-	return false
+	util.Debugf("Connecting to %s", raddr)
+	return rpc.DialTCP("tcp", raddr, err == nil && usr.Uid == "0")
 }

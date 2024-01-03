@@ -1,17 +1,21 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/willscott/go-nfs-client/nfs/rpc"
 	"github.com/willscott/go-nfs-client/nfs/util"
 	"github.com/willscott/go-nfs-client/nfs/xdr"
+)
+
+var (
+	_ io.ReadWriteSeeker = &File{}
+	_ io.Closer          = &File{}
+	_ io.ReaderAt        = &File{}
 )
 
 // File wraps the NfsProc3Read and NfsProc3Write methods to implement a
@@ -69,6 +73,18 @@ func (f *File) Readlink() (string, error) {
 }
 
 func (f *File) Read(p []byte) (int, error) {
+	n, err := f.readAt(p, int64(f.curr))
+	if err == nil {
+		f.curr += uint64(n)
+	}
+	return n, err
+}
+
+func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
+	return f.readAt(p, off)
+}
+
+func (f *File) readAt(p []byte, off int64) (n int, err error) {
 	type ReadArgs struct {
 		rpc.Header
 		FH     []byte
@@ -85,8 +101,8 @@ func (f *File) Read(p []byte) (int, error) {
 		}
 	}
 
-	readSize := min(f.fsinfo.RTPref, uint32(len(p)))
-	util.Debugf("read(%x) len=%d offset=%d", f.fh, readSize, f.curr)
+	readSize := min(f.fsinfo.RTMax, uint32(len(p)))
+	util.Debugf("read(%x) len=%d offset=%d", f.fh, readSize, off)
 
 	r, err := f.call(&ReadArgs{
 		Header: rpc.Header{
@@ -98,7 +114,7 @@ func (f *File) Read(p []byte) (int, error) {
 			Verf:    rpc.AuthNull,
 		},
 		FH:     f.fh,
-		Offset: uint64(f.curr),
+		Offset: uint64(off),
 		Count:  readSize,
 	})
 
@@ -112,8 +128,7 @@ func (f *File) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	f.curr = f.curr + uint64(readres.Data.Length)
-	n, err := r.Read(p[:readres.Data.Length])
+	n, err = r.Read(p[:readres.Data.Length])
 	if err != nil {
 		return n, err
 	}
@@ -121,7 +136,6 @@ func (f *File) Read(p []byte) (int, error) {
 	if readres.EOF != 0 {
 		err = io.EOF
 	}
-
 	return n, err
 }
 
@@ -285,75 +299,6 @@ func (v *Target) Open(path string) (*File, error) {
 	}
 
 	return f, nil
-}
-
-// Symlink creates a symlink as where pointing to symlink
-func (v *Target) Symlink(where, symlink string) (*File, error) {
-	type symlinkdata3 struct {
-		SymlinkAttr Sattr3
-		SymlinkData []byte
-	}
-
-	type SymlinkArgs struct {
-		rpc.Header
-		Where   Diropargs3
-		Symlink symlinkdata3
-	}
-
-	type SymlinkRes struct {
-		obj     PostOpFH3
-		objAttr PostOpAttr
-		Wcc     WccData
-	}
-
-	symlinkName := filepath.Base(where)
-	symlinkDir := filepath.Dir(where)
-
-	_, fh, err := v.Lookup(symlinkDir)
-	if err != nil {
-		return nil, err
-	}
-
-	r, err := v.call(&SymlinkArgs{
-		Header: rpc.Header{
-			Rpcvers: 2,
-			Prog:    Nfs3Prog,
-			Vers:    Nfs3Vers,
-			Proc:    NFSProc3Symlink,
-			Cred:    v.auth,
-			Verf:    rpc.AuthNull,
-		},
-		Where: Diropargs3{
-			FH:       fh,
-			Filename: symlinkName,
-		},
-		Symlink: symlinkdata3{
-			SymlinkAttr: Sattr3{},
-			SymlinkData: []byte(symlink),
-		},
-	})
-
-	if err != nil {
-		util.Debugf("Symlink(%s): %s", where, err.Error())
-		return nil, err
-	}
-
-	symlinkres := &SymlinkRes{}
-	if err = xdr.Read(r, symlinkres); err != nil {
-		return nil, err
-	}
-
-	if !symlinkres.obj.IsSet {
-		return nil, errors.New("fh not set")
-	}
-
-	symFile := &File{
-		Target: v,
-		fsinfo: v.fsinfo,
-		fh:     symlinkres.obj.FH,
-	}
-
-	return symFile, nil
 }
 
 func min(x, y uint32) uint32 {
