@@ -105,9 +105,17 @@ func (m *Mount) Mount(dirpath string, auth rpc.Auth) (*Target, error) {
 		m.dirPath = dirpath
 		m.auth = auth
 
-		vol, err := NewTarget(m.Addr, auth, fh, dirpath, m.entryTimeout)
-		if err != nil {
-			return nil, err
+		var vol *Target
+		if m.Addr != "" {
+			vol, err = NewTarget(m.Addr, auth, fh, dirpath, m.entryTimeout)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			vol, err = NewTargetWithClient(m.Client, auth, fh, dirpath, m.entryTimeout)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		return vol, nil

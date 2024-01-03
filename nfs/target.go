@@ -48,6 +48,10 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string, entryTimeo
 		return nil, err
 	}
 
+	return NewTargetWithClient(client, auth, fh, dirpath, entryTimeout)
+}
+
+func NewTargetWithClient(client *rpc.Client, auth rpc.Auth, fh []byte, dirpath string, entryTimeout time.Duration) (*Target, error) {
 	vol := &Target{
 		Client:       client,
 		auth:         auth,
@@ -63,7 +67,7 @@ func NewTarget(addr string, auth rpc.Auth, fh []byte, dirpath string, entryTimeo
 	}
 
 	vol.fsinfo = fsinfo
-	util.Debugf("%s:%s fsinfo=%#v", addr, dirpath, fsinfo)
+	util.Debugf("%s fsinfo=%#v", dirpath, fsinfo)
 	go vol.cleanupCache()
 	return vol, nil
 }

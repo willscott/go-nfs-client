@@ -1,6 +1,5 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import (
@@ -41,13 +40,13 @@ func TestDialService(t *testing.T) {
 	}
 	defer listener.Close()
 
-	_, err = dialService("127.0.0.1", 6666)
+	_, err = DialServiceAtPort("127.0.0.1", 6666)
 	if err != nil {
 		t.Logf("error dialing: %s", err.Error())
 		t.FailNow()
 	}
 
-	_, err = dialService("127.0.0.1", 6666)
+	_, err = DialServiceAtPort("127.0.0.1", 6666)
 	if err != nil {
 		t.Logf("error dialing: %s", err.Error())
 		t.FailNow()
