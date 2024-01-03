@@ -263,10 +263,10 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 		return nil, err
 	}
 
-	return dialService(addr, port)
+	return DialServiceAtPort(addr, port)
 }
 
-func dialService(addr string, port int) (*rpc.Client, error) {
+func DialServiceAtPort(addr string, port int) (*rpc.Client, error) {
 	usr, err := user.Current()
 	raddr := fmt.Sprintf("%s:%d", addr, port)
 	// Unless explicitly configured, the target will likely reject connections
