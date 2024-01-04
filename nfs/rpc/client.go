@@ -45,7 +45,6 @@ func init() {
 	xid = rand.New(rand.NewSource(time.Now().UnixNano())).Uint32()
 }
 
-// added by zema1
 var DefaultReadTimeout = time.Second * 5
 
 type Client struct {
@@ -217,7 +216,12 @@ retry:
 	c.replies[msg.Xid] = reply
 	c.Unlock()
 
-	res := <-reply
+	var res io.ReadSeeker
+	select {
+	case res = <-reply:
+	case <-time.After(DefaultReadTimeout):
+	}
+
 	c.Lock()
 	delete(c.replies, msg.Xid)
 	c.Unlock()
