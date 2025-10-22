@@ -10,10 +10,8 @@ import (
 	"io"
 	"math/rand"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/willscott/go-nfs-client/nfs/util"
@@ -56,15 +54,6 @@ type Client struct {
 
 	closed  bool
 	replies map[uint32]chan io.ReadSeeker
-}
-
-func isAddrInUse(err error) bool {
-	if er, ok := (err.(*net.OpError)); ok {
-		if syser, ok := er.Err.(*os.SyscallError); ok {
-			return syser.Err == syscall.EADDRINUSE
-		}
-	}
-	return false
 }
 
 func DialTCP(network string, addr string, privileged bool) (*Client, error) {
