@@ -74,9 +74,7 @@ func (f *File) Readlink() (string, error) {
 
 func (f *File) Read(p []byte) (int, error) {
 	n, err := f.readAt(p, int64(f.curr))
-	if err == nil {
-		f.curr += uint64(n)
-	}
+	f.curr += uint64(n)
 	return n, err
 }
 
